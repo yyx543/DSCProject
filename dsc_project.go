@@ -1,42 +1,51 @@
 package main
 
-import {
+import (
 	"fmt"
-}
+	"strconv"
+)
 
 var allVirtualNodes []*virtualNode // global list of virtual nodes
+var numOfVirtualNodes int = 5      // assume 5 virtual nodes
+var numOfRoomIds int = 10          // assume 10 different rooms
+var numOfReplicas int = 1          // assume no replication
 
-func main () {
-	var numOfVirtualNodes int = 5 // assume 5 virtual nodes
-	var numOfRoomIds int = 10 // assume 10 different rooms
-	var numOfReplicas int = 1 // assume no replication
+func main() {
+
 	allVirtualNodes = make([]*virtualNode, numOfVirtualNodes)
 
 	// room id (0 - 9)
 	// roomId // numOfVirtualNodes -> [0, 4]
 
-	// create virtual nodes 
+	// create virtual nodes
 	for id := 0; id < numOfVirtualNodes; id++ {
-		nodeNew := virtualNode{nodeList: make([]*physicalNode, numOfRoomIds/numOfVirtualNodes*numOfReplicas), 
-			hashID: id, mapping: make(map[int]int)}
+		nodeNew := virtualNode{nodeList: make([]*physicalNode, numOfRoomIds/numOfVirtualNodes*numOfReplicas), hashID: id, roomToPos: make(map[int]int)}
+		// nodeNEW := new(virtualNode)
+		// nodeNEW.nodeList := make([]*physicalNode, numOfRoomIds/numOfVirtualNodes*numOfReplicas)
+
 		// create list of physical nodes
 		for j := 0; j < numOfRoomIds/numOfVirtualNodes; j++ {
 			newPhysicalNode := physicalNode{roomID: id + j*numOfVirtualNodes, studentID: 0}
-			nodeNew.nodeList[j] = newPhysicalNode
-			mapping[id + j*numOfVirtualNodes] = j
+			nodeNew.nodeList[j] = &newPhysicalNode
+			nodeNew.roomToPos[id+j*numOfVirtualNodes] = j
 		}
 
 		go nodeNew.virtualNodeWait()
-		allVirtualNodes[id] = nodeNew
+		allVirtualNodes[id] = &nodeNew
 	}
 
-	generalWait(1, "create", "1004123")
+	go generalWait(1, "create", 1004123)
+
+	for {
+
+	}
 }
 
 func generalWait(roomId int, op string, studentId int) { // op can be "create" or "delete"
 	// hash room id
-	inputHashId := roomId%numOfVirtualNodes
-	
+	inputHashId := roomId % numOfVirtualNodes
+	fmt.Println("General wait check")
+
 	// check which virtual node this hashed value belong to
 	for _, vnode := range allVirtualNodes {
 		if inputHashId == vnode.hashID {
@@ -46,25 +55,27 @@ func generalWait(roomId int, op string, studentId int) { // op can be "create" o
 			msgNew.operation = op
 			msgNew.msgStudentId = studentId
 
-			vnode.ch <- msgNew
+			vnode.ch <- *msgNew
 		}
 	}
+
 }
 
 type virtualNode struct {
-	ch chan message
-	nodeList []physicalNode
-	hashID int
+	ch        chan message
+	nodeList  []*physicalNode
+	hashID    int
 	roomToPos map[int]int // mapping between physical node roomID (key) and its position in nodeList (value)
 }
 
 type message struct {
-	msgRoomId int
+	msgRoomId    int
 	msgStudentId int
-	operation string // "create", "delete"
+	operation    string // "create", "delete"
 }
 
 func (vnode virtualNode) virtualNodeWait() {
+	//fmt.Println("The room has been successfully booked!")
 	virtualNodeCh := vnode.ch
 	for {
 		// will take in input from general function which is the HASHED room id to be querried
@@ -76,11 +87,11 @@ func (vnode virtualNode) virtualNodeWait() {
 				roomPosition := vnode.roomToPos[msg.msgRoomId]
 				roomPositionPhysicalNode := vnode.nodeList[roomPosition]
 
-				if msg.operation == "create"{
-					if roomPositionPhysicalNode.studentID != 0 { 
+				if msg.operation == "create" {
+					if roomPositionPhysicalNode.studentID != 0 {
 						// if room is booked - print already booked
-						fmt.Println("The room has already been booked by Student ID: " + roomPositionPhysicalNode.studentID)
-					} else { 
+						fmt.Println("The room has already been booked by Student ID: " + strconv.Itoa(roomPositionPhysicalNode.studentID))
+					} else {
 						// if room is NOT booked - allow booking
 						roomPositionPhysicalNode.studentID = msg.msgStudentId
 						fmt.Println("The room has been successfully booked!")
@@ -88,7 +99,7 @@ func (vnode virtualNode) virtualNodeWait() {
 				} else if msg.operation == "delete" {
 					if roomPositionPhysicalNode.studentID == msg.msgStudentId {
 						// if room is booked by CORRECT student - delete booking
-						roomPositionPhysicalNode.studentID == 0
+						roomPositionPhysicalNode.studentID = 0
 						fmt.Println("Booking deleted")
 					} else if roomPositionPhysicalNode.studentID != 0 {
 						// if room is booked by WRONG student - CANNOT delete booking
@@ -104,7 +115,7 @@ func (vnode virtualNode) virtualNodeWait() {
 }
 
 type physicalNode struct {
-	roomID int
+	roomID    int
 	studentID int
 }
 
