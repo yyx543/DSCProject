@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strconv"
-	"time"
 )
 
 var allVirtualNodes []*virtualNode // global list of virtual nodes
@@ -34,12 +33,25 @@ func main() {
 		go nodeNew.virtualNodeWait()
 		allVirtualNodes[id] = &nodeNew
 	}
-	fmt.Println("Length of allvirtualnodes " + strconv.Itoa(len(allVirtualNodes)))
-	go generalWait(1, "delete", 1004123)
-	time.Sleep(3 * time.Second)
-	//go generalWait(1, "delete", 1004123)
+
+	// this to test multiple nodes
+
+	go generalWait(1, "create", 1004123)
+	go generalWait(2, "create", 1004999)
+
+	//this takes in input from client from command line
+
+	// var inputStudentID, inputRoomNumber int
+	// var inputOperation string
 
 	for {
+		// fmt.Println("What is your student ID")
+		// fmt.Scanln(&inputStudentID)
+		// fmt.Println("Do you want to create or delete a booking?\n create \t delete")
+		// fmt.Scanln(&inputOperation)
+		// fmt.Println("Enter the room number from 0-9")
+		// fmt.Scanln(&inputRoomNumber)
+		// go generalWait(inputRoomNumber, inputOperation, inputStudentID)
 
 	}
 }
@@ -47,8 +59,8 @@ func main() {
 func generalWait(roomId int, op string, studentId int) { // op can be "create" or "delete"
 	// hash room id
 	inputHashId := roomId % numOfVirtualNodes
-	fmt.Println("Entering General wait")
-	fmt.Println(op + " room " + strconv.Itoa(roomId) + " by studentID: " + strconv.Itoa(studentId))
+	//fmt.Println("Entering General wait")
+	fmt.Println("Trying to " + op + " room " + strconv.Itoa(roomId) + " by studentID: " + strconv.Itoa(studentId))
 
 	// check which virtual node this hashed value belong to
 	for _, vnode := range allVirtualNodes {
@@ -81,7 +93,7 @@ type message struct {
 }
 
 func (vnode virtualNode) virtualNodeWait() {
-	fmt.Println("Node " + strconv.Itoa(vnode.hashID) + " is now waiting")
+	//fmt.Println("Node " + strconv.Itoa(vnode.hashID) + " is now waiting")
 	virtualNodeCh := vnode.ch
 	for {
 		// will take in input from general function which is the HASHED room id to be querried
