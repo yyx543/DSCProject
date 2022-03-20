@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"time"
 )
 
 var allVirtualNodes []*virtualNode // global list of virtual nodes
@@ -19,7 +20,7 @@ func main() {
 
 	// create virtual nodes
 	for id := 0; id < numOfVirtualNodes; id++ {
-		nodeNew := virtualNode{nodeList: make([]*physicalNode, numOfRoomIds/numOfVirtualNodes*numOfReplicas), hashID: id, roomToPos: make(map[int]int)}
+		nodeNew := virtualNode{ch: make(chan message), nodeList: make([]*physicalNode, numOfRoomIds/numOfVirtualNodes*numOfReplicas), hashID: id, roomToPos: make(map[int]int)}
 		// nodeNEW := new(virtualNode)
 		// nodeNEW.nodeList := make([]*physicalNode, numOfRoomIds/numOfVirtualNodes*numOfReplicas)
 
@@ -33,8 +34,10 @@ func main() {
 		go nodeNew.virtualNodeWait()
 		allVirtualNodes[id] = &nodeNew
 	}
-
-	go generalWait(1, "create", 1004123)
+	fmt.Println("Length of allvirtualnodes " + strconv.Itoa(len(allVirtualNodes)))
+	go generalWait(1, "delete", 1004123)
+	time.Sleep(3 * time.Second)
+	//go generalWait(1, "delete", 1004123)
 
 	for {
 
@@ -44,7 +47,8 @@ func main() {
 func generalWait(roomId int, op string, studentId int) { // op can be "create" or "delete"
 	// hash room id
 	inputHashId := roomId % numOfVirtualNodes
-	fmt.Println("General wait check")
+	fmt.Println("Entering General wait")
+	fmt.Println(op + " room " + strconv.Itoa(roomId) + " by studentID: " + strconv.Itoa(studentId))
 
 	// check which virtual node this hashed value belong to
 	for _, vnode := range allVirtualNodes {
@@ -55,7 +59,9 @@ func generalWait(roomId int, op string, studentId int) { // op can be "create" o
 			msgNew.operation = op
 			msgNew.msgStudentId = studentId
 
-			vnode.ch <- *msgNew
+			vnodech := vnode.ch
+
+			vnodech <- *msgNew
 		}
 	}
 
@@ -75,7 +81,7 @@ type message struct {
 }
 
 func (vnode virtualNode) virtualNodeWait() {
-	//fmt.Println("The room has been successfully booked!")
+	fmt.Println("Node " + strconv.Itoa(vnode.hashID) + " is now waiting")
 	virtualNodeCh := vnode.ch
 	for {
 		// will take in input from general function which is the HASHED room id to be querried
@@ -94,7 +100,7 @@ func (vnode virtualNode) virtualNodeWait() {
 					} else {
 						// if room is NOT booked - allow booking
 						roomPositionPhysicalNode.studentID = msg.msgStudentId
-						fmt.Println("The room has been successfully booked!")
+						fmt.Println("The room " + strconv.Itoa(msg.msgRoomId) + " has been successfully booked by " + strconv.Itoa(msg.msgStudentId))
 					}
 				} else if msg.operation == "delete" {
 					if roomPositionPhysicalNode.studentID == msg.msgStudentId {
