@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -22,7 +23,8 @@ func main() {
 
 	// create virtual nodes
 	for id := 0; id < numOfVirtualNodes; id++ {
-		nodeNew := virtualNode{ch: make(chan message), nodeList: make([]*physicalNode, numOfRoomIds/numOfVirtualNodes*numOfReplicas), hashID: id, roomToPos: make(map[int]int)}
+		nodeNew := virtualNode{ch: make(chan message), nodeList: make([]*physicalNode, numOfRoomIds/numOfVirtualNodes*numOfReplicas), hashID: id, roomToPos: make(map[int]int), replyCount: make(map[string]int), vnodeMutex: &sync.RWMutex{}}
+
 		for j := 0; j < numOfRoomIds/numOfVirtualNodes; j++ {
 			for k := 0; k < numOfReplicas; k++ {
 				var newPhysicalNode physicalNode
@@ -50,6 +52,10 @@ func main() {
 
 	go generalWait(1, "create", 1004123)
 	go generalWait(2, "create", 1004999)
+
+	go generalWait(3, "read", 1004345)
+	go generalWait(2, "read", 1004345)
+
 	// go generalWait(2, "create", 1004999)
 
 	//this takes in input from client from command line
@@ -106,12 +112,15 @@ func generalWait(roomId int, op string, studentId int) { // op can be "create" o
 }
 
 type virtualNode struct {
-	ch          chan message
-	nodeList    []*physicalNode
-	hashID      int
-	roomToPos   map[int]int // mapping between physical node roomID (key) and its position in nodeList (value)
-	replyCount  int
+	ch        chan message
+	nodeList  []*physicalNode
+	hashID    int
+	roomToPos map[int]int // mapping between physical node roomID (key) and its position in nodeList (value)
+	// replyCount  map[int]map[int]int // replyCount[roomID][studentID] to get reply count
+	replyCount  map[string]int // map[roomID + studentID] to get count
 	requestDONE bool
+	vnodeMutex  *sync.RWMutex
+
 	// requestBoolean bool
 }
 
@@ -140,62 +149,46 @@ func (vnode *virtualNode) virtualNodeWait() {
 				roomPosition := vnode.roomToPos[msg.msgRoomId]
 				roomPositionPhysicalNode := vnode.nodeList[roomPosition]
 
-				if msg.operation == "create" {
+				if msg.operation == "create" || msg.operation == "delete" || msg.operation == "read" {
+					go vnode.requestReplicate(msg.msgRoomId, msg.msgStudentId, msg.operation)
+
+				} else if msg.operation == "request" {
+					// handle reqests for replies
+
+					// physicalnodereply
+					go vnode.nodeList[vnode.roomToPos[msg.msgRoomId]].physicalNodeReply(msg)
+
+				} else if msg.operation == "reply" {
+
+					// receive replies to add to replycount
+					key := strconv.Itoa(msg.msgRoomId) + strconv.Itoa(msg.msgStudentId)
+					vnode.vnodeMutex.Lock()
+					vnode.replyCount[key] += 1
+					vnode.vnodeMutex.Unlock()
+
+				} else if msg.operation == "create-success" {
 					if roomPositionPhysicalNode.studentID != 0 {
 						// if room is booked - print already booked
 						fmt.Println("The room has already been booked by Student ID: " + strconv.Itoa(roomPositionPhysicalNode.studentID))
 					} else {
 						// if room is NOT booked - allow booking
-						vnode.requestReplicate(msg.msgRoomId, msg.msgStudentId)
-						start := time.Now()
-						for vnode.requestDONE == false {
-							//fmt.Println(vnode.replyCount)
-							// if vnode.requestBoolean {
-							// 	physicalNode := vnode.nodeList[vnode.roomToPos[msg.msgRoomId]]
-							// 	physicalNode.physicalNodeReply(msg)
-							// 	vnode.requestBoolean = false
-							// }
-							if vnode.replyCount >= wReplication {
-								vnode.replicateData(msg.msgRoomId, msg.msgStudentId)
-								vnode.requestDONE = true
-								//reset
-								vnode.replyCount = 0
-								break
-
-							}
-							elapsed := time.Since(start)
-							if elapsed >= time.Second*5 {
-								fmt.Println("ERROR REPLICATION HAS FAILED")
-								return
-							}
-						}
-
+						// update create operation here locally
 						roomPositionPhysicalNode.studentID = msg.msgStudentId
-
 						fmt.Println("The room " + strconv.Itoa(msg.msgRoomId) + " has been successfully booked by " + strconv.Itoa(msg.msgStudentId))
 					}
-				} else if msg.operation == "delete" {
+
+					key := strconv.Itoa(msg.msgRoomId) + strconv.Itoa(msg.msgStudentId)
+					vnode.vnodeMutex.Lock()
+					vnode.replyCount[key] = 0
+					vnode.vnodeMutex.Unlock()
+
+					fmt.Println("created done2")
+
+				} else if msg.operation == "delete-success" {
+
 					if roomPositionPhysicalNode.studentID == msg.msgStudentId {
 						// if room is booked by CORRECT student - delete booking
-
-						vnode.requestReplicate(msg.msgRoomId, msg.msgStudentId)
-						start := time.Now()
-						for vnode.requestDONE == false {
-							if vnode.replyCount >= wReplication {
-								vnode.replicateData(msg.msgRoomId, msg.msgStudentId)
-								vnode.requestDONE = true
-								//reset
-								vnode.replyCount = 0
-								break
-
-							}
-							elapsed := time.Since(start)
-							if elapsed >= time.Second*5 {
-								fmt.Println("ERROR REPLICATION HAS FAILED")
-								return
-							}
-						}
-
+						// update delete operation here locally
 						roomPositionPhysicalNode.studentID = 0
 						fmt.Println("Booking deleted")
 					} else if roomPositionPhysicalNode.studentID != 0 {
@@ -205,19 +198,19 @@ func (vnode *virtualNode) virtualNodeWait() {
 						// if room not booked - CANNOT delete booking
 						fmt.Println("Room not booked - No booking to delete")
 					}
-				} else if msg.operation == "request" {
-					physicalNode := vnode.nodeList[vnode.roomToPos[msg.msgRoomId]]
-					physicalNode.physicalNodeReply(msg)
-				} else if msg.operation == "reply" {
-					// vnode.replyCount++
-					// fmt.Println("reply count " + strconv.Itoa(vnode.replyCount))
-					// if vnode.replyCount >= wReplication {
-					// 	vnode.replicateData(msg.msgRoomId, msg.msgStudentId)
-					// 	vnode.requestDONE = true
-					// 	//reset
-					// 	vnode.replyCount = 0
 
-					// }
+					key := strconv.Itoa(msg.msgRoomId) + strconv.Itoa(msg.msgStudentId)
+					vnode.vnodeMutex.Lock()
+					vnode.replyCount[key] = 0
+					vnode.vnodeMutex.Unlock()
+					fmt.Println("delete done")
+
+				} else if msg.operation == "read-success" {
+					if roomPositionPhysicalNode.studentID == 0 {
+						fmt.Println("Room " + strconv.Itoa(roomPositionPhysicalNode.roomID) + " not booked")
+					} else {
+						fmt.Println("Room " + strconv.Itoa(roomPositionPhysicalNode.roomID) + " is booked by Student ID: " + strconv.Itoa(roomPositionPhysicalNode.studentID))
+					}
 				}
 			}
 		}
@@ -227,8 +220,6 @@ func (vnode *virtualNode) virtualNodeWait() {
 func (pnode *physicalNode) physicalNodeReply(msg message) {
 	fmt.Println("Physical Node " + strconv.Itoa(pnode.roomID) + " is replying to replication request")
 	senderCH := msg.sender.ch
-	msg.sender.replyCount += 1
-	// fmt.Println(msg.sender.replyCount)
 
 	newMSG := new(message)
 	newMSG.operation = "reply"
@@ -238,16 +229,9 @@ func (pnode *physicalNode) physicalNodeReply(msg message) {
 
 }
 
-func (vnode *virtualNode) requestReplicate(roomID int, studentID int) {
+func (vnode *virtualNode) requestReplicate(roomID int, studentID int, op string) {
+	// this is the go routine that will busy wait for replies
 	fmt.Println("Requesting replication")
-
-	//get next 2 virtual nodes id
-	next1 := (vnode.hashID + 1) % numOfVirtualNodes
-	next2 := (vnode.hashID + 2) % numOfVirtualNodes
-
-	//request msg
-	next1CH := allVirtualNodes[next1].ch
-	next2CH := allVirtualNodes[next2].ch
 
 	newMSG := new(message)
 	newMSG.operation = "request"
@@ -255,52 +239,73 @@ func (vnode *virtualNode) requestReplicate(roomID int, studentID int) {
 	newMSG.msgStudentId = studentID
 	newMSG.sender = vnode
 
-	next1CH <- *newMSG
-	next2CH <- *newMSG
-	// vnode.requestBoolean = true
-	// allVirtualNodes[next1].requestBoolean = true
-	// allVirtualNodes[next2].requestBoolean = true
+	for i := 1; i < numOfReplicas; i++ {
+		next := (vnode.hashID + i) % numOfVirtualNodes
+		nextCH := allVirtualNodes[next].ch
+		nextCH <- *newMSG
+	}
 
+	// initiate replyCount
+	key := strconv.Itoa(roomID) + strconv.Itoa(studentID)
+	vnode.vnodeMutex.Lock()
+	vnode.replyCount[key] = 0
+	vnode.vnodeMutex.Unlock()
+
+	// wait for replies
+	start := time.Now()
+	for {
+		// if majority, break (SUCCESS)
+
+		if op == "create" || op == "delete" {
+			// for write operation
+			vnode.vnodeMutex.Lock()
+			if vnode.replyCount[key] >= wReplication-1 {
+				vnode.vnodeMutex.Unlock()
+				// send message back to virtualNodeWait() - successful replication
+				successMSG := new(message)
+				successMSG.operation = op + "-success"
+				successMSG.msgRoomId = roomID
+				successMSG.msgStudentId = studentID
+				successMSG.sender = vnode
+				vnode.ch <- *successMSG
+				return
+			}
+			vnode.vnodeMutex.Unlock()
+		} else if op == "read" {
+			// for read operation
+			vnode.vnodeMutex.Lock()
+			if vnode.replyCount[key] >= rReplication {
+				vnode.vnodeMutex.Unlock()
+				// send message back to virtualNodeWait() - successful replication
+				successMSG := new(message)
+				successMSG.operation = op + "-success"
+				successMSG.msgRoomId = roomID
+				successMSG.msgStudentId = studentID
+				successMSG.sender = vnode
+				vnode.ch <- *successMSG
+				return
+			}
+			vnode.vnodeMutex.Unlock()
+		}
+
+		// if timeout, replication failed (FAILURE)
+		elapsed := time.Since(start)
+		if elapsed >= time.Second*5 {
+			// send message back to virtualNodeWait() - unsuccessful replication
+			fmt.Println("ERROR REPLICATION HAS FAILED")
+			return
+		}
+	}
 }
 
 func (vnode *virtualNode) replicateData(roomID int, studentID int) {
 	fmt.Println("Replication request successfull, replicating data")
-	//get next 2
-	next1 := (vnode.hashID + 1) % numOfVirtualNodes
-	next2 := (vnode.hashID + 2) % numOfVirtualNodes
 
-	physicalNode1 := allVirtualNodes[next1].nodeList[vnode.roomToPos[roomID]]
-	physicalNode1.studentID = studentID
-
-	physicalNode2 := allVirtualNodes[next2].nodeList[vnode.roomToPos[roomID]]
-	physicalNode2.studentID = studentID
-
+	// get next replicase
+	for i := 1; i < numOfReplicas; i++ {
+		next := (vnode.hashID + i) % numOfVirtualNodes
+		physicalNode := allVirtualNodes[next].nodeList[vnode.roomToPos[roomID]]
+		physicalNode.studentID = studentID
+	}
+	fmt.Println("Replication successful!")
 }
-
-// func (c client) sendMessage(msg message) { //client struc method
-// 	ch := c.server.ch
-// 	c.vectorClock[c.id] += 1
-// 	//vclock := c.vectorClock
-
-// 	msg.vectorClock = c.vectorClock
-// 	ch <- msg // this sends a message to server channel
-
-// }
-
-// func (s server) serverWAIT() {
-// 	serverchannel := s.ch
-// 	for {
-// 		select {
-// 		case i, ok := <-serverchannel:
-// 			if ok {
-// 				go s.serverBroadcast(i)
-
-// 			}
-// 		case <-exitChannel:
-// 			fmt.Println("Server closing")
-// 			return
-// 		default:
-
-// 		}
-// 	}
-// }
