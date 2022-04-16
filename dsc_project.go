@@ -8,14 +8,14 @@ import (
 )
 
 const (
-	numOfVirtualNodes int = 5  // assume 5 virtual nodes
-	numOfRoomIds      int = 10 // assume 10 different rooms
-	numOfReplicas     int = 3  // assume no replication
+	numOfVirtualNodes int = 5 // assume 5 virtual nodes
+	numOfReplicas     int = 3 // assume no replication
 	rReplication      int = 3
-	wReplication      int = 3
+	wReplication      int = 4
 	numOfBackUps      int = 10
 )
 
+var numOfRoomIds int = 10          // assume 10 different rooms
 var allVirtualNodes []*virtualNode // global list of virtual nodes
 var backUpNodes []*physicalNode    // storage of backup physical nodes
 
@@ -56,22 +56,24 @@ func main() {
 			for k := 0; k < numOfReplicas; k++ {
 				var newPhysicalNode physicalNode
 				if k == 0 {
-					newPhysicalNode = physicalNode{roomID: (id + k + j*numOfVirtualNodes) % numOfRoomIds, studentID: 0, localLogicalClock: 0, parentVnode: &nodeNew, isBackUp: false, ch: make(chan message)}
+					// coordinator pnode
+					newPhysicalNode = physicalNode{roomID: (id + j*numOfVirtualNodes) % numOfRoomIds, studentID: 0, localLogicalClock: 0, parentVnode: &nodeNew, isBackUp: false, ch: make(chan message)}
 
-					nodeNew.roomToPos[(id+k+j*numOfVirtualNodes)%numOfRoomIds] = j + k*numOfRoomIds/numOfVirtualNodes
-					go newPhysicalNode.physicalNodeWait()
+					nodeNew.roomToPos[(id+j*numOfVirtualNodes)%numOfRoomIds] = j
 				} else {
+					// replica pnodes
 					newPhysicalNode = physicalNode{roomID: (id + k + (numOfVirtualNodes - numOfReplicas) + j*numOfVirtualNodes) % numOfRoomIds, studentID: 0, localLogicalClock: 0, parentVnode: &nodeNew, isBackUp: false, ch: make(chan message)} //localVectorClock: make([]int, numOfRoomIds
 
 					nodeNew.roomToPos[(id+k+(numOfVirtualNodes-numOfReplicas)+j*numOfVirtualNodes)%numOfRoomIds] = j + k*numOfRoomIds/numOfVirtualNodes
-					go newPhysicalNode.physicalNodeWait()
 				}
 				nodeNew.nodeList[j+k*numOfRoomIds/numOfVirtualNodes] = &newPhysicalNode
+				go newPhysicalNode.physicalNodeWait()
 
 			}
 			//nodeNew.roomToPos[id+j*numOfVirtualNodes] = j
-		}
 
+		}
+		// fmt.Println(nodeNew.roomToPos)
 		go nodeNew.virtualNodeWait()
 		allVirtualNodes[id] = &nodeNew
 	}
@@ -79,8 +81,15 @@ func main() {
 
 	// this to test multiple nodes
 
-	go generalWait(1, "create", 1004123)
-	go generalWait(1, "create", 1004999)
+	// simulate die
+	// go allVirtualNodes[1].nodeList[allVirtualNodes[1].roomToPos[1]].die(40)
+	// time.Sleep(3 * time.Second)
+
+	addNewRoom()
+	time.Sleep(1 * time.Second)
+	go generalWait(10, "create", 1004123)
+
+	// go generalWait(1, "create", 1004999)
 	// time.Sleep(3 * time.Second)
 	// go generalWait(1, "delete", 1004123)
 	// go generalWait(3, "read", 1004345)
@@ -174,6 +183,7 @@ type physicalNode struct {
 	ch                chan message
 	parentVnode       *virtualNode
 	isBackUp          bool
+	isDead            bool
 }
 
 func (vnode *virtualNode) virtualNodeWait() {
@@ -324,30 +334,19 @@ func (vnode *virtualNode) virtualNodeWait() {
 					vnode.vnodeMutex.Unlock()
 
 				} else if msg.operation == "reply from pnode" {
-					temp := make([]*virtualNode, len(vnode.replicaAliveArr)-1)
+					var temp []*virtualNode = nil
 
-					for idx, replica := range vnode.replicaAliveArr {
+					for _, replica := range vnode.replicaAliveArr {
 						if msg.sender != replica {
 							temp = append(temp, replica)
 						}
 					}
-
 					vnode.replicaAliveArr = temp
-
 				}
 			}
 		}
 	}
 }
-
-// 1) pnode dies, vnode alive
-// 2) vnode dies, pnode alive
-// 3) both dies???
-
-// func (pnode *physicalNode) updateReplica(updatedPnode *physicalNode) {
-// 	pnode.studentID = updatedPnode.studentID
-// 	pnode.localLogicalClock = updatedPnode.localLogicalClock
-// }
 
 func (pnode *physicalNode) physicalNodeReply(msg message) {
 	fmt.Println("Physical Node " + strconv.Itoa(pnode.roomID) + " is replying to replication request")
@@ -432,10 +431,11 @@ func (vnode *virtualNode) requestReplicate(roomID int, studentID int, op string)
 			// did not receive response from at least one replica
 			fmt.Println("At least one replica has died..")
 			// check if other two replicas are alive
-			return
+
 			for i := 1; i < numOfReplicas; i++ {
 				replicaVnode := allVirtualNodes[(vnode.hashID+i)%numOfVirtualNodes]
 				replicaPnode := replicaVnode.nodeList[vnode.roomToPos[roomID]]
+				fmt.Println("pnode " + strconv.Itoa(replicaPnode.roomID) + ", vnode " + strconv.Itoa((vnode.hashID+i)%numOfVirtualNodes))
 				newMSG := new(message)
 				newMSG.msgStudentId = studentID
 				newMSG.msgRoomId = roomID
@@ -447,7 +447,27 @@ func (vnode *virtualNode) requestReplicate(roomID int, studentID int, op string)
 			start := time.Now()
 			for {
 				if len(vnode.replicaAliveArr) == 0 {
-					fmt.Println("Replicas are alive")
+					fmt.Println("Replicas are alive - 1")
+					if op == "create" || op == "delete" {
+						// for write operation
+						// send message back to virtualNodeWait() - successful replication
+						successMSG := new(message)
+						successMSG.operation = op + "-success"
+						successMSG.msgRoomId = roomID
+						successMSG.msgStudentId = studentID
+						successMSG.sender = vnode
+						vnode.ch <- *successMSG
+						return
+					} else if op == "read" {
+						// for read operation
+						// send message back to virtualNodeWait() - successful replication
+						successMSG := new(message)
+						successMSG.operation = op + "-success"
+						successMSG.msgRoomId = roomID
+						successMSG.msgStudentId = studentID
+						successMSG.sender = vnode
+						vnode.ch <- *successMSG
+					}
 					return
 				}
 				elapsed2 := time.Since(start)
@@ -455,10 +475,28 @@ func (vnode *virtualNode) requestReplicate(roomID int, studentID int, op string)
 					// check if receive replies
 					for _, replica := range vnode.replicaAliveArr {
 						fmt.Println("Replica " + strconv.Itoa(replica.hashID) + " is dead")
+						pReplicaForInfo := getNextAlivePnode(roomID, roomID%numOfVirtualNodes, replica.hashID)
+						pBackUpNode := findBackup()
 
+						// update backupNode
+						pBackUpNode.roomID = pReplicaForInfo.roomID
+						pBackUpNode.studentID = pReplicaForInfo.studentID
+						pBackUpNode.localLogicalClock = pReplicaForInfo.localLogicalClock
+						pBackUpNode.parentVnode = replica
+						deadNode := replica.nodeList[replica.roomToPos[roomID]]
+						pBackUpNode.originalPnode = deadNode
+
+						// change pointer of nodelist
+						replica.nodeList[replica.roomToPos[roomID]] = pBackUpNode
 						// transfer replica data to new physical node
 						// vnode.createNewReplicaData(replica.hashID, roomID)
 					}
+
+					vnode.replicaAliveArr = nil
+
+					time.Sleep(2 * time.Second)
+					fmt.Println("completed replication, starting client request again")
+					go generalWait(roomID, op, studentID)
 					return
 				}
 			}
@@ -547,8 +585,10 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 			// check if other two replicas are alive
 			for i := 0; i < numOfReplicas; i++ {
 				replicaVnode := allVirtualNodes[(vnode.hashID+i)%numOfVirtualNodes]
-				replicaPnode := replicaVnode.nodeList[vnode.roomToPos[roomID]]
+				replicaPnode := replicaVnode.nodeList[replicaVnode.roomToPos[roomID]]
+				fmt.Println("pnode " + strconv.Itoa(replicaPnode.roomID) + ", vnode " + strconv.Itoa((vnode.hashID+i)%numOfVirtualNodes))
 				newMSG := new(message)
+				newMSG.operation = "check alive"
 				newMSG.msgStudentId = studentID
 				newMSG.msgRoomId = roomID
 				newMSG.sender = vnode
@@ -559,7 +599,29 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 			start := time.Now()
 			for {
 				if len(vnode.replicaAliveArr) == 0 {
-					fmt.Println("Replicas are alive")
+					fmt.Println("Replicas are alive - 2")
+					fmt.Println(op)
+					if op == "create-success" {
+						// send message back to virtualNodeWait() - successful replication
+						successMSG := new(message)
+						successMSG.operation = "create-overwrite"
+						successMSG.msgRoomId = roomID
+						successMSG.msgStudentId = studentID
+						successMSG.sender = vnode
+						vnode.ch <- *successMSG
+						fmt.Println("msg sent")
+						return
+					} else if op == "delete-success" {
+						// send message back to virtualNodeWait() - successful replication
+						successMSG := new(message)
+						successMSG.operation = "delete-overwrite"
+						successMSG.msgRoomId = roomID
+						successMSG.msgStudentId = studentID
+						successMSG.sender = vnode
+						vnode.ch <- *successMSG
+						return
+					}
+
 					return
 				}
 				elapsed2 := time.Since(start)
@@ -574,15 +636,23 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 						pBackUpNode.roomID = pReplicaForInfo.roomID
 						pBackUpNode.studentID = pReplicaForInfo.studentID
 						pBackUpNode.localLogicalClock = pReplicaForInfo.localLogicalClock
+						pBackUpNode.parentVnode = replica
 						deadNode := replica.nodeList[replica.roomToPos[roomID]]
 						pBackUpNode.originalPnode = deadNode
 
 						// change pointer of nodelist
 						replica.nodeList[replica.roomToPos[roomID]] = pBackUpNode
-
-						// transfer replica data to new physical node
-						// vnode.createNewReplicaData(replica.hashID, roomID)
 					}
+
+					vnode.replicaAliveArr = nil
+
+					time.Sleep(2 * time.Second)
+					if op == "create-success" {
+						go generalWait(roomID, "create", studentID)
+					} else if op == "delete-success" {
+						go generalWait(roomID, "delete", studentID)
+					}
+
 					return
 				}
 			}
@@ -602,17 +672,12 @@ func getNextAlivePnode(roomID int, mainVnodeID int, deadVnodeID int) *physicalNo
 	}
 }
 
-// func (vnode *virtualNode) createNewReplicaData(vnodeID int, roomID int) {
-// 	// to be continued
-// 	// newPhysicalNode := physicalNode{roomID: , studentID: , localLogicalClock: , parentVnode: }
-// 	findBackup()
-// }
-
 func findBackup() *physicalNode {
 	//returns pointer for a physical node
 
 	for _, backupNode := range backUpNodes {
 		if backupNode.roomID == numOfRoomIds {
+			fmt.Println("Backup found")
 			return backupNode
 		}
 	}
@@ -623,16 +688,58 @@ func findBackup() *physicalNode {
 func (pnode *physicalNode) physicalNodeWait() {
 	physicalNodeCh := pnode.ch
 	for {
-		if pnode.isBackUp == true && pnode.roomID != numOfRoomIds {
+		if !pnode.isDead {
 
-		} else {
+			if pnode.isBackUp == true && pnode.roomID != numOfRoomIds {
+				// check back if primary replica is alive
+				originalCH := pnode.originalPnode.ch
+
+				newMSG := new(message)
+				newMSG.sender = pnode.parentVnode
+				newMSG.operation = "check alive from backup"
+				newMSG.senderPnode = pnode // backup pnode
+
+				originalCH <- *newMSG
+			}
+
 			select {
 			case msg, ok := <-physicalNodeCh:
-				if ok {
-					newMSG := new(message)
-					newMSG.sender = pnode.parentVnode
-					newMSG.operation = "reply from pnode"
-					allVirtualNodes[msg.senderPnode.roomID].ch <- *newMSG
+				if pnode.isDead {
+					fmt.Println("someone is dead...")
+				} else if ok {
+					if msg.operation == "check alive" {
+						fmt.Println("Pnode of roomID " + strconv.Itoa(pnode.roomID) + " of vnode " + strconv.Itoa(pnode.parentVnode.hashID) + " is alive")
+						newMSG := new(message)
+						newMSG.sender = pnode.parentVnode
+						newMSG.operation = "reply from pnode"
+						msg.sender.ch <- *newMSG
+					} else if msg.operation == "check alive from backup" {
+						// retrieve back data from replica + remove replica
+						fmt.Println("primary pnode received 'check alive' message from backup pnode")
+						// retrieve data
+						pnode.roomID = msg.senderPnode.roomID
+						pnode.studentID = msg.senderPnode.studentID
+						pnode.localLogicalClock = msg.senderPnode.localLogicalClock
+
+						// set replica boolean to false
+						msg.senderPnode.roomID = numOfRoomIds
+						pnode.parentVnode.nodeList[pnode.parentVnode.roomToPos[pnode.roomID]] = pnode
+
+						// remove replica
+						backupCH := msg.sender.ch
+
+						newMSGReplace := new(message)
+						newMSGReplace.operation = "reset backup"
+						backupCH <- *newMSGReplace
+
+					} else if msg.operation == "reset backup" {
+						fmt.Println("reset backup pnode")
+						pnode.roomID = numOfRoomIds
+						pnode.studentID = 0
+						pnode.localLogicalClock = 0
+						pnode.parentVnode = nil
+						pnode.originalPnode = nil
+					}
 				}
 			}
 		}
@@ -653,4 +760,42 @@ func (vnode *virtualNode) replicateData(roomID int, studentID int) {
 		physicalNode.studentID = studentID
 	}
 	fmt.Println("Replication successful!")
+}
+
+func (pnode *physicalNode) die(t int) {
+	fmt.Println("Pnode of roomID " + strconv.Itoa(pnode.roomID) + " of vnode " + strconv.Itoa(pnode.parentVnode.hashID) + " is dead")
+
+	pnode.isDead = true
+	time.Sleep(time.Duration(t) * time.Second)
+	pnode.isDead = false
+
+	fmt.Println("Pnode of roomID " + strconv.Itoa(pnode.roomID) + " of vnode " + strconv.Itoa(pnode.parentVnode.hashID) + " came back alive...")
+}
+
+func addNewRoom() {
+	// create and update pnodes a vnodes
+	for i := 0; i < numOfReplicas; i++ {
+		pnode := physicalNode{
+			roomID:            numOfRoomIds,
+			studentID:         0,
+			localLogicalClock: 0,
+			parentVnode:       allVirtualNodes[(numOfRoomIds+i)%numOfVirtualNodes],
+			ch:                make(chan message),
+		}
+		pnode.parentVnode.roomToPos[pnode.roomID] = len(pnode.parentVnode.nodeList)
+		pnode.parentVnode.nodeList = append(pnode.parentVnode.nodeList, &pnode)
+		go pnode.physicalNodeWait()
+
+	}
+
+	// increase num of room id
+	numOfRoomIds += 1
+
+	// increase backup room id number
+	for _, pnode := range backUpNodes {
+		if pnode.roomID == numOfRoomIds-1 {
+			pnode.roomID = numOfRoomIds
+		}
+	}
+	fmt.Println("new room added")
 }
