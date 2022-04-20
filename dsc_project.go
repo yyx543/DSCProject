@@ -110,19 +110,66 @@ func main() {
 	// go generalWait(1, "create", 1004999)
 
 	//this takes in input from client from command line
-	// var inputStudentID, inputRoomNumber int
-	// var inputOperation string
+	var inputStudentID string
+	var inputRoomNumber string
+	var inputOperation string
+	var validRoomNumber int
+	var validStudentNumber int
 
 	for {
 		// Scenario 5 - Manual input (UI)
-		// fmt.Println("What is your student ID")
-		// fmt.Scanln(&inputStudentID)
-		// fmt.Println("Do you want to create, delete or read a booking?\n create \t delete \t read")
-		// fmt.Scanln(&inputOperation)
-		// fmt.Println("Enter the room number from 0-9")
-		// fmt.Scanln(&inputRoomNumber)
-		// go generalWait(inputRoomNumber, inputOperation, inputStudentID)
-		// time.Sleep(5 * time.Second)
+
+		for {
+			fmt.Println("What is your student ID")
+			fmt.Scanln(&inputStudentID)
+
+			if i, err := strconv.Atoi(inputStudentID); err == nil {
+				validStudentNumber = i
+				break
+
+			} else {
+				fmt.Println("Please input a valid student number")
+			}
+		}
+
+		for {
+			fmt.Println("Do you want to create, delete or read a booking?\n create \t delete \t read")
+			fmt.Scanln(&inputOperation)
+			if inputOperation == "create" || inputOperation == "delete" || inputOperation == "read" {
+				break
+			} else {
+				fmt.Println("Incorrect input, please choose one of the options")
+			}
+		}
+
+		// exitCheck:
+		for {
+			fmt.Println("Enter the room number from 0-9")
+			fmt.Scanln(&inputRoomNumber)
+
+			// if inputRoomNumber.(T) == int {
+
+			// }
+			// if inputRoomNumber >= 0 && inputRoomNumber < numOfRoomIds {
+			// 	break
+			// } else {
+			// 	fmt.Println("Invalid input, please enter room number from 0-9 again")
+			// }
+			if i, err := strconv.Atoi(inputRoomNumber); err == nil {
+				if i >= 0 && i < 10 {
+					validRoomNumber = i
+					break
+				} else {
+					fmt.Println("Please input a number from 0 to 9")
+				}
+
+			} else {
+				fmt.Println("Please input a valid number")
+			}
+		}
+
+		go generalWait(validRoomNumber, inputOperation, validStudentNumber)
+		time.Sleep(5 * time.Second)
 
 	}
 }
