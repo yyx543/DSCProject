@@ -81,35 +81,48 @@ func main() {
 
 	// this to test multiple nodes
 
-	// simulate die
-	// go allVirtualNodes[1].nodeList[allVirtualNodes[1].roomToPos[1]].die(40)
-	// time.Sleep(3 * time.Second)
-
-	addNewRoom()
-	time.Sleep(1 * time.Second)
-	go generalWait(10, "create", 1004123)
-
+	// Scenario 1 (Consistency) - verification with read + 2 users booking same room + verification with read
+	// go generalWait(1, "read", 1004567)
+	// time.Sleep(1 * time.Second)
 	// go generalWait(1, "create", 1004999)
-	// time.Sleep(3 * time.Second)
-	// go generalWait(1, "delete", 1004123)
-	// go generalWait(3, "read", 1004345)
-	// go generalWait(2, "read", 1004345)
+	// go generalWait(1, "create", 1004123)
+	// time.Sleep(5 * time.Second)
+	// go generalWait(1, "read", 1004567)
 
-	// go generalWait(2, "create", 1004999)
+	// Scenario 2 (Consistency) - attempt to delete booking when (1) is not yours (2) is yours (3) is empty
+	// go generalWait(1, "create", 1004999)
+	// time.Sleep(5 * time.Second)
+	// go generalWait(1, "delete", 1004123) // not yours
+	// time.Sleep(5 * time.Second)
+	// go generalWait(1, "delete", 1004999) // yours
+	// time.Sleep(5 * time.Second)
+	// go generalWait(1, "delete", 1004999) // empty
+
+	// Scenario 3 (Scalability) - add new room (pnode)
+	// addNewRoom()
+	// time.Sleep(1 * time.Second)
+	// go generalWait(10, "create", 1004123)
+
+	// Scenario 4 (Fault Tolerance) - simulate pnode dying
+	// go allVirtualNodes[1].nodeList[allVirtualNodes[1].roomToPos[1]].die(30)
+	// go allVirtualNodes[3].nodeList[allVirtualNodes[3].roomToPos[1]].die(30)
+	// time.Sleep(5 * time.Second)
+	// go generalWait(1, "create", 1004999)
 
 	//this takes in input from client from command line
-
 	// var inputStudentID, inputRoomNumber int
 	// var inputOperation string
 
 	for {
+		// Scenario 5 - Manual input (UI)
 		// fmt.Println("What is your student ID")
 		// fmt.Scanln(&inputStudentID)
-		// fmt.Println("Do you want to create or delete a booking?\n create \t delete")
+		// fmt.Println("Do you want to create, delete or read a booking?\n create \t delete \t read")
 		// fmt.Scanln(&inputOperation)
 		// fmt.Println("Enter the room number from 0-9")
 		// fmt.Scanln(&inputRoomNumber)
 		// go generalWait(inputRoomNumber, inputOperation, inputStudentID)
+		// time.Sleep(5 * time.Second)
 
 	}
 }
@@ -249,7 +262,7 @@ func (vnode *virtualNode) virtualNodeWait() {
 						fmt.Println("Unable to delete someone else's booking")
 					} else {
 						// if room not booked - CANNOT delete booking
-						fmt.Println("Room not booked - No booking to delete")
+						fmt.Println("Room " + strconv.Itoa(msg.msgRoomId) + " not booked - No booking to delete")
 					}
 
 				} else if msg.operation == "read-success" {
@@ -269,7 +282,7 @@ func (vnode *virtualNode) virtualNodeWait() {
 						// update create operation here locally
 
 						fmt.Println("Node " + strconv.Itoa(vnode.hashID) + " updating replica of roomID " + strconv.Itoa(roomPositionPhysicalNode.roomID))
-						roomPositionPhysicalNode.studentID = msg.senderPnode.studentID
+						roomPositionPhysicalNode.studentID = msg.msgStudentId
 						roomPositionPhysicalNode.localLogicalClock = msg.senderPnode.localLogicalClock
 
 						go vnode.nodeList[vnode.roomToPos[msg.msgRoomId]].physicalNodeReply(msg)
@@ -291,21 +304,12 @@ func (vnode *virtualNode) virtualNodeWait() {
 						fmt.Println("Unable to delete someone else's booking")
 					} else {
 						// if room not booked - CANNOT delete booking
-						fmt.Println("Room not booked - No booking to delete")
+						fmt.Println("Room " + strconv.Itoa(msg.msgRoomId) + " not booked - No booking to delete")
 					}
 
 				} else if msg.operation == "create-overwrite" {
 
-					if roomPositionPhysicalNode.studentID != 0 {
-						// if room is booked - print already booked
-						fmt.Println("The room has already been booked by Student ID: " + strconv.Itoa(roomPositionPhysicalNode.studentID))
-					} else {
-						// if room is NOT booked - allow booking
-						// update create operation here locally
-
-						roomPositionPhysicalNode.studentID = msg.msgStudentId
-						fmt.Println("The room " + strconv.Itoa(msg.msgRoomId) + " has been successfully booked by " + strconv.Itoa(msg.msgStudentId))
-					}
+					fmt.Println("The room " + strconv.Itoa(msg.msgRoomId) + " has been successfully booked by " + strconv.Itoa(msg.msgStudentId))
 
 					key := strconv.Itoa(msg.msgRoomId) + strconv.Itoa(msg.msgStudentId)
 					vnode.vnodeMutex.Lock()
@@ -314,19 +318,7 @@ func (vnode *virtualNode) virtualNodeWait() {
 
 				} else if msg.operation == "delete-overwrite" {
 
-					if roomPositionPhysicalNode.studentID == msg.msgStudentId {
-						// if room is booked by CORRECT student - delete booking
-						// update delete operation here locally
-						roomPositionPhysicalNode.studentID = 0
-						fmt.Println("Booking deleted")
-
-					} else if roomPositionPhysicalNode.studentID != 0 {
-						// if room is booked by WRONG student - CANNOT delete booking
-						fmt.Println("Unable to delete someone else's booking")
-					} else {
-						// if room not booked - CANNOT delete booking
-						fmt.Println("Room not booked - No booking to delete")
-					}
+					fmt.Println("RoomID " + strconv.Itoa(msg.msgRoomId) + " booking has been deleted by " + strconv.Itoa(msg.msgStudentId))
 
 					key := strconv.Itoa(msg.msgRoomId) + strconv.Itoa(msg.msgStudentId)
 					vnode.vnodeMutex.Lock()
@@ -335,7 +327,6 @@ func (vnode *virtualNode) virtualNodeWait() {
 
 				} else if msg.operation == "reply from pnode" {
 					var temp []*virtualNode = nil
-
 					for _, replica := range vnode.replicaAliveArr {
 						if msg.sender != replica {
 							temp = append(temp, replica)
@@ -349,15 +340,17 @@ func (vnode *virtualNode) virtualNodeWait() {
 }
 
 func (pnode *physicalNode) physicalNodeReply(msg message) {
-	fmt.Println("Physical Node " + strconv.Itoa(pnode.roomID) + " is replying to replication request")
-	senderCH := msg.sender.ch
+	if !pnode.isDead {
+		fmt.Println("PNode " + strconv.Itoa(pnode.roomID) + " of vnode " + strconv.Itoa(pnode.parentVnode.hashID) + " is replying to replication request")
+		senderCH := msg.sender.ch
 
-	newMSG := new(message)
-	newMSG.operation = "reply"
-	newMSG.msgRoomId = msg.msgRoomId
-	newMSG.msgStudentId = msg.msgStudentId
-	newMSG.senderPnode = pnode
-	senderCH <- *newMSG
+		newMSG := new(message)
+		newMSG.operation = "reply"
+		newMSG.msgRoomId = msg.msgRoomId
+		newMSG.msgStudentId = msg.msgStudentId
+		newMSG.senderPnode = pnode
+		senderCH <- *newMSG
+	}
 
 }
 
@@ -432,11 +425,12 @@ func (vnode *virtualNode) requestReplicate(roomID int, studentID int, op string)
 			fmt.Println("At least one replica has died..")
 			// check if other two replicas are alive
 
-			for i := 1; i < numOfReplicas; i++ {
+			for i := 0; i < numOfReplicas; i++ {
 				replicaVnode := allVirtualNodes[(vnode.hashID+i)%numOfVirtualNodes]
-				replicaPnode := replicaVnode.nodeList[vnode.roomToPos[roomID]]
-				fmt.Println("pnode " + strconv.Itoa(replicaPnode.roomID) + ", vnode " + strconv.Itoa((vnode.hashID+i)%numOfVirtualNodes))
+				replicaPnode := replicaVnode.nodeList[replicaVnode.roomToPos[roomID]]
+				// fmt.Println("pnode " + strconv.Itoa(replicaPnode.roomID) + ", vnode " + strconv.Itoa((vnode.hashID+i)%numOfVirtualNodes))
 				newMSG := new(message)
+				newMSG.operation = "check alive"
 				newMSG.msgStudentId = studentID
 				newMSG.msgRoomId = roomID
 				newMSG.sender = vnode
@@ -444,10 +438,11 @@ func (vnode *virtualNode) requestReplicate(roomID int, studentID int, op string)
 				replicaPnode.ch <- *newMSG // check if replica is dead or alive
 				vnode.replicaAliveArr = append(vnode.replicaAliveArr, replicaVnode)
 			}
+
 			start := time.Now()
 			for {
 				if len(vnode.replicaAliveArr) == 0 {
-					fmt.Println("Replicas are alive - 1")
+					// fmt.Println("Replicas are alive - 1")
 					if op == "create" || op == "delete" {
 						// for write operation
 						// send message back to virtualNodeWait() - successful replication
@@ -490,6 +485,8 @@ func (vnode *virtualNode) requestReplicate(roomID int, studentID int, op string)
 						replica.nodeList[replica.roomToPos[roomID]] = pBackUpNode
 						// transfer replica data to new physical node
 						// vnode.createNewReplicaData(replica.hashID, roomID)
+						msg := new(message)
+						pBackUpNode.ch <- *msg
 					}
 
 					vnode.replicaAliveArr = nil
@@ -527,7 +524,7 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 		updateMSG.sender = vnode
 		updateMSG.senderPnode = vnode.nodeList[vnode.roomToPos[roomID]] // updated pnode
 
-		for i := 1; i < numOfReplicas; i++ {
+		for i := 0; i < numOfReplicas; i++ {
 			replicaVnode := allVirtualNodes[(vnode.hashID+i)%numOfVirtualNodes]
 			replicaVnode.ch <- *updateMSG
 		}
@@ -539,7 +536,7 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 		updateMSG.sender = vnode
 		updateMSG.senderPnode = vnode.nodeList[vnode.roomToPos[roomID]] // updated pnode
 
-		for i := 1; i < numOfReplicas; i++ {
+		for i := 0; i < numOfReplicas; i++ {
 			replicaVnode := allVirtualNodes[(vnode.hashID+i)%numOfVirtualNodes]
 			replicaVnode.ch <- *updateMSG
 		}
@@ -549,6 +546,7 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 	for {
 		if op == "create-success" {
 			vnode.vnodeMutex.Lock()
+			// fmt.Println(vnode.replyCount[key])
 			if vnode.replyCount[key] >= wReplication-1 {
 				vnode.vnodeMutex.Unlock()
 				// send message back to virtualNodeWait() - successful replication
@@ -580,13 +578,13 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 		elapsed := time.Since(start)
 		if elapsed > time.Second*5 {
 			// did not receive response from at least one replica
-			fmt.Println("At least one replica has died..")
+			fmt.Println("At least one replica has died....")
 
 			// check if other two replicas are alive
 			for i := 0; i < numOfReplicas; i++ {
 				replicaVnode := allVirtualNodes[(vnode.hashID+i)%numOfVirtualNodes]
 				replicaPnode := replicaVnode.nodeList[replicaVnode.roomToPos[roomID]]
-				fmt.Println("pnode " + strconv.Itoa(replicaPnode.roomID) + ", vnode " + strconv.Itoa((vnode.hashID+i)%numOfVirtualNodes))
+				// fmt.Println("pnode " + strconv.Itoa(replicaPnode.roomID) + ", vnode " + strconv.Itoa((vnode.hashID+i)%numOfVirtualNodes))
 				newMSG := new(message)
 				newMSG.operation = "check alive"
 				newMSG.msgStudentId = studentID
@@ -599,8 +597,8 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 			start := time.Now()
 			for {
 				if len(vnode.replicaAliveArr) == 0 {
-					fmt.Println("Replicas are alive - 2")
-					fmt.Println(op)
+					// fmt.Println("Replicas are alive - 2")
+					// fmt.Println(op)
 					if op == "create-success" {
 						// send message back to virtualNodeWait() - successful replication
 						successMSG := new(message)
@@ -609,7 +607,6 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 						successMSG.msgStudentId = studentID
 						successMSG.sender = vnode
 						vnode.ch <- *successMSG
-						fmt.Println("msg sent")
 						return
 					} else if op == "delete-success" {
 						// send message back to virtualNodeWait() - successful replication
@@ -642,6 +639,9 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 
 						// change pointer of nodelist
 						replica.nodeList[replica.roomToPos[roomID]] = pBackUpNode
+
+						msg := new(message)
+						pBackUpNode.ch <- *msg
 					}
 
 					vnode.replicaAliveArr = nil
@@ -708,7 +708,6 @@ func (pnode *physicalNode) physicalNodeWait() {
 					fmt.Println("someone is dead...")
 				} else if ok {
 					if msg.operation == "check alive" {
-						fmt.Println("Pnode of roomID " + strconv.Itoa(pnode.roomID) + " of vnode " + strconv.Itoa(pnode.parentVnode.hashID) + " is alive")
 						newMSG := new(message)
 						newMSG.sender = pnode.parentVnode
 						newMSG.operation = "reply from pnode"
@@ -767,9 +766,9 @@ func (pnode *physicalNode) die(t int) {
 
 	pnode.isDead = true
 	time.Sleep(time.Duration(t) * time.Second)
+	fmt.Println("Pnode of roomID " + strconv.Itoa(pnode.roomID) + " of vnode " + strconv.Itoa(pnode.parentVnode.hashID) + " came back alive...")
 	pnode.isDead = false
 
-	fmt.Println("Pnode of roomID " + strconv.Itoa(pnode.roomID) + " of vnode " + strconv.Itoa(pnode.parentVnode.hashID) + " came back alive...")
 }
 
 func addNewRoom() {
