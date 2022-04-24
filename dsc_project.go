@@ -15,9 +15,10 @@ const (
 	numOfBackUps      int = 10
 )
 
-var numOfRoomIds int = 10          // assume 10 different rooms
+var numOfRoomIds int = 2000        // assume 10 different rooms
 var allVirtualNodes []*virtualNode // global list of virtual nodes
 var backUpNodes []*physicalNode    // storage of backup physical nodes
+var finishCount int = 0
 
 func main() {
 
@@ -77,6 +78,22 @@ func main() {
 		go nodeNew.virtualNodeWait()
 		allVirtualNodes[id] = &nodeNew
 	}
+
+	// Testings and Experiments
+	var instance int = 1500
+
+	startTime := time.Now()
+	for id := 0; id < instance; id++ {
+		go generalWait(1, "read", id)
+	}
+
+	for {
+		if finishCount == instance {
+			fmt.Println(time.Since(startTime))
+			break
+		}
+	}
+
 	// checkPhysicalNodes()
 
 	// this to test multiple nodes
@@ -102,6 +119,7 @@ func main() {
 	// addNewRoom()
 	// time.Sleep(1 * time.Second)
 	// go generalWait(10, "create", 1004123)
+	// go generalWait(10, "read", 1004999)
 
 	// Scenario 4 (Fault Tolerance) - simulate pnode dying
 	// go allVirtualNodes[1].nodeList[allVirtualNodes[1].roomToPos[1]].die(30)
@@ -110,66 +128,66 @@ func main() {
 	// go generalWait(1, "create", 1004999)
 
 	//this takes in input from client from command line
-	var inputStudentID string
-	var inputRoomNumber string
-	var inputOperation string
-	var validRoomNumber int
-	var validStudentNumber int
+	// var inputStudentID string
+	// var inputRoomNumber string
+	// var inputOperation string
+	// var validRoomNumber int
+	// var validStudentNumber int
 
 	for {
 		// Scenario 5 - Manual input (UI)
 
-		for {
-			fmt.Println("What is your student ID")
-			fmt.Scanln(&inputStudentID)
+		// for {
+		// 	fmt.Println("What is your student ID")
+		// 	fmt.Scanln(&inputStudentID)
 
-			if i, err := strconv.Atoi(inputStudentID); err == nil {
-				validStudentNumber = i
-				break
+		// 	if i, err := strconv.Atoi(inputStudentID); err == nil {
+		// 		validStudentNumber = i
+		// 		break
 
-			} else {
-				fmt.Println("Please input a valid student number")
-			}
-		}
+		// 	} else {
+		// 		fmt.Println("Please input a valid student number")
+		// 	}
+		// }
 
-		for {
-			fmt.Println("Do you want to create, delete or read a booking?\n create \t delete \t read")
-			fmt.Scanln(&inputOperation)
-			if inputOperation == "create" || inputOperation == "delete" || inputOperation == "read" {
-				break
-			} else {
-				fmt.Println("Incorrect input, please choose one of the options")
-			}
-		}
+		// for {
+		// 	fmt.Println("Do you want to create, delete or read a booking?\n create \t delete \t read")
+		// 	fmt.Scanln(&inputOperation)
+		// 	if inputOperation == "create" || inputOperation == "delete" || inputOperation == "read" {
+		// 		break
+		// 	} else {
+		// 		fmt.Println("Incorrect input, please choose one of the options")
+		// 	}
+		// }
 
-		// exitCheck:
-		for {
-			fmt.Println("Enter the room number from 0-9")
-			fmt.Scanln(&inputRoomNumber)
+		// // exitCheck:
+		// for {
+		// 	fmt.Println("Enter the room number from 0-9")
+		// 	fmt.Scanln(&inputRoomNumber)
 
-			// if inputRoomNumber.(T) == int {
+		// 	// if inputRoomNumber.(T) == int {
 
-			// }
-			// if inputRoomNumber >= 0 && inputRoomNumber < numOfRoomIds {
-			// 	break
-			// } else {
-			// 	fmt.Println("Invalid input, please enter room number from 0-9 again")
-			// }
-			if i, err := strconv.Atoi(inputRoomNumber); err == nil {
-				if i >= 0 && i < 10 {
-					validRoomNumber = i
-					break
-				} else {
-					fmt.Println("Please input a number from 0 to 9")
-				}
+		// 	// }
+		// 	// if inputRoomNumber >= 0 && inputRoomNumber < numOfRoomIds {
+		// 	// 	break
+		// 	// } else {
+		// 	// 	fmt.Println("Invalid input, please enter room number from 0-9 again")
+		// 	// }
+		// 	if i, err := strconv.Atoi(inputRoomNumber); err == nil {
+		// 		if i >= 0 && i < 10 {
+		// 			validRoomNumber = i
+		// 			break
+		// 		} else {
+		// 			fmt.Println("Please input a number from 0 to 9")
+		// 		}
 
-			} else {
-				fmt.Println("Please input a valid number")
-			}
-		}
+		// 	} else {
+		// 		fmt.Println("Please input a valid number")
+		// 	}
+		// }
 
-		go generalWait(validRoomNumber, inputOperation, validStudentNumber)
-		time.Sleep(5 * time.Second)
+		// go generalWait(validRoomNumber, inputOperation, validStudentNumber)
+		// time.Sleep(5 * time.Second)
 
 	}
 }
@@ -318,6 +336,7 @@ func (vnode *virtualNode) virtualNodeWait() {
 					} else {
 						fmt.Println("Room " + strconv.Itoa(roomPositionPhysicalNode.roomID) + " is booked by Student ID: " + strconv.Itoa(roomPositionPhysicalNode.studentID))
 					}
+					finishCount += 1
 
 				} else if msg.operation == "create-update" {
 
@@ -362,6 +381,7 @@ func (vnode *virtualNode) virtualNodeWait() {
 					vnode.vnodeMutex.Lock()
 					vnode.replyCount[key] = 0
 					vnode.vnodeMutex.Unlock()
+					finishCount += 1
 
 				} else if msg.operation == "delete-overwrite" {
 
@@ -371,6 +391,7 @@ func (vnode *virtualNode) virtualNodeWait() {
 					vnode.vnodeMutex.Lock()
 					vnode.replyCount[key] = 0
 					vnode.vnodeMutex.Unlock()
+					finishCount += 1
 
 				} else if msg.operation == "reply from pnode" {
 					var temp []*virtualNode = nil
@@ -467,7 +488,7 @@ func (vnode *virtualNode) requestReplicate(roomID int, studentID int, op string)
 
 		// if timeout, replication failed (FAILURE)
 		elapsed := time.Since(start)
-		if elapsed >= time.Second*5 {
+		if elapsed >= time.Second*60 {
 			// did not receive response from at least one replica
 			fmt.Println("At least one replica has died..")
 			// check if other two replicas are alive
@@ -513,7 +534,7 @@ func (vnode *virtualNode) requestReplicate(roomID int, studentID int, op string)
 					return
 				}
 				elapsed2 := time.Since(start)
-				if elapsed2 >= time.Second*5 {
+				if elapsed2 >= time.Second*60 {
 					// check if receive replies
 					for _, replica := range vnode.replicaAliveArr {
 						fmt.Println("Replica " + strconv.Itoa(replica.hashID) + " is dead")
@@ -623,7 +644,7 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 		}
 
 		elapsed := time.Since(start)
-		if elapsed > time.Second*5 {
+		if elapsed > time.Second*60 {
 			// did not receive response from at least one replica
 			fmt.Println("At least one replica has died....")
 
@@ -669,7 +690,7 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 					return
 				}
 				elapsed2 := time.Since(start)
-				if elapsed2 >= time.Second*5 {
+				if elapsed2 >= time.Second*60 {
 					// check if receive replies
 					for _, replica := range vnode.replicaAliveArr {
 						fmt.Println("Replica " + strconv.Itoa(replica.hashID) + " is dead")
