@@ -488,7 +488,7 @@ func (vnode *virtualNode) requestReplicate(roomID int, studentID int, op string)
 
 		// if timeout, replication failed (FAILURE)
 		elapsed := time.Since(start)
-		if elapsed >= time.Second*60 {
+		if elapsed >= time.Second*5 {
 			// did not receive response from at least one replica
 			fmt.Println("At least one replica has died..")
 			// check if other two replicas are alive
@@ -534,7 +534,7 @@ func (vnode *virtualNode) requestReplicate(roomID int, studentID int, op string)
 					return
 				}
 				elapsed2 := time.Since(start)
-				if elapsed2 >= time.Second*60 {
+				if elapsed2 >= time.Second*5 {
 					// check if receive replies
 					for _, replica := range vnode.replicaAliveArr {
 						fmt.Println("Replica " + strconv.Itoa(replica.hashID) + " is dead")
@@ -644,7 +644,7 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 		}
 
 		elapsed := time.Since(start)
-		if elapsed > time.Second*60 {
+		if elapsed > time.Second*5 {
 			// did not receive response from at least one replica
 			fmt.Println("At least one replica has died....")
 
@@ -690,7 +690,7 @@ func (vnode *virtualNode) requestReplicaOverwrite(roomID int, studentID int, op 
 					return
 				}
 				elapsed2 := time.Since(start)
-				if elapsed2 >= time.Second*60 {
+				if elapsed2 >= time.Second*5 {
 					// check if receive replies
 					for _, replica := range vnode.replicaAliveArr {
 						fmt.Println("Replica " + strconv.Itoa(replica.hashID) + " is dead")
